@@ -1,11 +1,11 @@
 ###############################################################################
-# Author: <Your Name>
+# Author: Bryan Shiffman
 # Name: TechNight-WebAPI-CICD (Workflow)
 #
-# Workflow used to package, deploy, and configure the TechNight-WebAPI
+# Workflow used to package, deploy, and configure the ATD-TechNight-WebAPI
 ###############################################################################
 
-name: TechNight-WebAPI-CICD
+name: ATD-TechNight-WebAPI-CICD
 
 env:
   DOTNET_VERSION: '6.0'
@@ -14,9 +14,13 @@ env:
 on:
   push:
     branches: [ "main" ]
-    paths:
-      #TODO: Add path to WebAPI project
-  # TODO: add pull request events to trigger the workflow
+    paths: 
+      'My-WebAPI/**'
+
+  pull_request:
+    branches: [ "main" ]
+    paths: 
+      'My-WebAPI/**'
 
   workflow_dispatch:
     inputs:
@@ -55,17 +59,22 @@ jobs:
       - name: Set variables to be passed to the reusable workflow
         id: setEnvVariables
         run: |
-          echo "AZURE_WEBAPP_NAME=<YOUR-WEBAPP-NAME>" >> "$GITHUB_OUTPUT"
-          echo "RESOURCE_GROUP=<YOUR-RG-NAME>"        >> "$GITHUB_OUTPUT"
+          echo "AZURE_WEBAPP_NAME=ATD-TechNightWorkshopWebApp" >> "$GITHUB_OUTPUT"
+          echo "RESOURCE_GROUP=rg-ATDTechNight"        >> "$GITHUB_OUTPUT"
 
       # Add Action to Setup .NET Core
       - name: Set up .NET Core
         uses: actions/setup-dotnet@v2
         with:
-          dotnet-version: #TODO: Add .NET Core version
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # TODO: Add Action to Build Web App
-      # TODO: Add Action to Run Unit Tests
+      - name: Build Web app
+        run: |
+          dotnet build ${{ env.WEBAPP_BASE_PATH }}/WebAPI -c Release 
+
+      - name: Run unit tests
+        run: |
+          dotnet test ${{ env.WEBAPP_BASE_PATH }}/WebAPI -c Release --logger "trx;logfilename=TestResults.trx"
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -73,9 +82,22 @@ jobs:
         with:
           files: ${{ env.WEBAPP_BASE_PATH }}/**/*.trx
 
-      # TODO: Add Action to Publish Web App 
-      # TODO: Add Action to Upload Web App Artifacts for Deployment
-      # TODO: Add Action to Upload Bicep Template for Deployment
+      - name: Publish Web App Artifacts
+        run: |
+          dotnet publish ${{ env.WEBAPP_BASE_PATH }}/WebAPI -c Release -o ${{ env.DOTNET_ROOT }}/technight-webapi
+
+      - name: Upload web app artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ATD-TechNight-Artifact
+          path: ${{ env.DOTNET_ROOT }}/technight-webapi
+
+      - name: Upload Bicep template
+        uses: actions/upload-artifact@v2
+        with:
+          name: ATD-TechNight-Artifact
+          path: arm-templates/webapp/azuredeploy.bicep
+
 
 ########################
 # DEVELOPMENT STAGE 
@@ -85,23 +107,60 @@ jobs:
       contents: none
     runs-on: ubuntu-latest
     needs: build
-    environment: <ENVIRONMENT-NAME>
+    environment: 'DEVELOPMENT'
 
-    # TODO: declare environment variables for the dev environment prefix
+    # declare environment variables for the dev environment prefix
+    env:
+      ENVIRONMENT_PREFIX: DEV
 
     steps:
 
       # Download the artifacts from the build job (actions/download-artifact@v3)
       - name: download-artifact
+        id: download
         uses: actions/download-artifact@v3
         with:
-          name: <YOUR-ARTIFACT-NAME>
+          name: ATD-TechNight-Artifact
 
-      #TODO: Add action to login to Azure (azure/login@v1)
-      #TODO: Add action to deploy the Web App Bicep Template (azure/arm-deploy@v1)
-      #TODO: Add action to deploy the Web App Artifacts (azure/webapps-deploy@v2)
-      #TODO: Add action to configure the Web App Settings (azure/appservice-settings@v1)
-      #TODO: Add action to log out of Azure 
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      #Add action to deploy the Web App Bicep Template (azure/arm-deploy@v1)
+      - name: Deploy Web App Bicep Template
+        uses: azure/arm-deploy@v1
+        with:
+          subscriptionId: ${{ secrets.SUBSCRIPTION_ID }}
+          scope: resource-group
+          resourceGroupName: ${{ env.ENVIRONMENT_PREFIX }}-${{ needs.build.outputs.RESOURCE_GROUP }}
+          template: azuredeploy.bicep
+          parameters: >
+            envPrefix=${{ env.ENVIRONMENT_PREFIX }}
+            webAppName=${{ needs.build.outputs.AZURE_WEBAPP_NAME }}
+            sku=B1
+          failOnStdErr: false
+
+
+      #Deploy the Web App Artifacts (azure/webapps-deploy@v2)
+      - name: Deploy Web App Artifacts
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.ENVIRONMENT_PREFIX }}-${{ needs.build.outputs.AZURE_WEBAPP_NAME }}
+          package: ${{steps.download.outputs.download-path}}
+          startup-command: 'dotnet WebAPI.dll'
+
+      #Configure the Web App Settings (azure/appservice-settings@v1)
+      - name: Configure web app settings
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: ${{ env.ENVIRONMENT_PREFIX }}-${{ needs.build.outputs.AZURE_WEBAPP_NAME }}
+          app-settings-json: ${{ secrets.APP_SETTINGS }}
+          connection-strings-json: ${{ secrets.CONNECTION_STRINGS }}
+
+      #log out of Azure 
+      - name: Logout of Azure
+        run: az logout
 
 ##############################
 # PRODUCTION STAGE (FOR LATER)
