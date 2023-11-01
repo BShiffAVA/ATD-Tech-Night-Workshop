@@ -132,7 +132,6 @@ jobs:
         uses: azure/arm-deploy@v1
         with:
           subscriptionId: ${{ secrets.SUBSCRIPTION_ID }}
-          scope: resource-group
           resourceGroupName: ${{ env.ENVIRONMENT_PREFIX }}-${{ needs.build.outputs.RESOURCE_GROUP }}
           template: azuredeploy.bicep
           parameters: >
