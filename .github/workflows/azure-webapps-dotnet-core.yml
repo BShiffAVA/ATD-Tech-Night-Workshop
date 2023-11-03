@@ -8,7 +8,7 @@
 name: ATD-TechNight-WebAPI-CICD
 
 env:
-  DOTNET_VERSION: '6.0'
+  DOTNET_VERSION: '7.0'
   WEBAPP_BASE_PATH: 'My-WebAPI'
 
 on:
